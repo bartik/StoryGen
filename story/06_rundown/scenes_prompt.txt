@@ -1,0 +1,3 @@
+Extract and separate the individual scenes from the provided text. Clearly identify where each scene begins and ends, and format the output so each scene is labeled and presented on its own, with transitions or shifts in time, location, or character focus marking scene boundaries.:
+
+
