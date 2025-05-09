@@ -1,0 +1,1 @@
+Through the perspective of each character write a one-page summary of the plot for each character. As a divider between the summaries of individual characters use the string "----------": 

@@ -1,0 +1,1 @@
+Write a page-long summary of each character’s story and personality. As a divider between the summaries of individual characters use the string "----------" :
