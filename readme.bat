@@ -1,5 +1,4 @@
 @echo off
-REM Randy Ingermanson’s Snowflake Method
 REM Step One
 REM expand the one sentence describing the story into a paragraph
 python scenes2description.py .\story\01_sentence .\story\02_paragraph\ sentence_??.txt sentence_ paragraph_
