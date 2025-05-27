@@ -4,6 +4,7 @@ import urllib3
 import argparse
 import configparser
 import logging
+import json
 
 # Suppress SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -20,8 +21,10 @@ def load_configuration(args):
 
     Returns:
         dict: A dictionary containing the final configuration values.
+        list: tag_file_tuples, a list of (tag, file_name) tuples from config or CLI.
     """
     config = configparser.ConfigParser()
+    tag_file_tuples = []
     if args.config:
         try:
             config.read(args.config)
@@ -34,29 +37,50 @@ def load_configuration(args):
     # Determine the section to read from
     section = args.section if args.section else "DEFAULT"
 
+    # Read tag_file_tuples only from keys named 'tag_file' that contain a comma
+    if section in config:
+        for key, value in config.items(section):
+            if key == "tag_file":
+                for line in value.splitlines():
+                    line = line.strip()
+                    if ',' in line:
+                        tag, file_name = line.split(',', 1)
+                        tag_file_tuples.append((tag.strip(), file_name.strip()))
+
+    # Add/override with positional arguments from CLI
+    for tf in args.tag_file:
+        if ',' not in tf:
+            logging.error(f"Invalid positional argument format: '{tf}'. Expected <tag>,<file_name>.")
+            sys.exit(1)
+        tag, file_name = tf.split(',', 1)
+        tag_file_tuples.append((tag.strip(), file_name.strip()))
+
     # Load and override configuration
     return {
-        "file_path": args.file or config.get(section, "file", fallback=None),
         "prompt_path": args.prompt or config.get(section, "prompt", fallback=None),
         "url": args.url or config.get(section, "url", fallback=None),
         "bearer_token": args.bearer or config.get(section, "bearer", fallback=None),
-    }
+    }, tag_file_tuples
 
-def validate_configuration(config):
+def validate_configuration(config, tag_file_tuples):
     """
     Validate the configuration to ensure all required parameters are provided.
 
     Parameters:
         config (dict): Configuration dictionary.
+        tag_file_tuples (list): List of (tag, file_name) tuples.
 
     Raises:
         ValueError: If any required parameter is missing.
     """
-    required_keys = ["file_path", "prompt_path", "url", "bearer_token"]
+    required_keys = ["prompt_path", "url", "bearer_token"]
     missing_keys = [key for key in required_keys if not config.get(key)]
     if missing_keys:
         logging.error(f"Missing required parameters: {', '.join(missing_keys)}")
         raise ValueError(f"Missing required parameters: {', '.join(missing_keys)}")
+    if not tag_file_tuples:
+        logging.error("No tag_file_tuples provided (either in config or as positional arguments).")
+        raise ValueError("No tag_file_tuples provided (either in config or as positional arguments).")
 
 def prepare_headers(bearer_token):
     """
@@ -74,31 +98,46 @@ def prepare_headers(bearer_token):
         "Content-Type": "application/json",
     }
 
-def post_text_to_url(file_path, prompt_path, url, headers):
+def post_text_to_url(prompt_path, url, headers, tag_file_tuples):
     """
-    Reads a prompt from a file, appends text from another file, escapes JSON special characters, 
-    and sends it as a POST request to a specified URL, ignoring SSL certificate errors.
+    Reads a prompt from a file, appends text from tag/file tuples, and sends it as a POST request.
 
     Parameters:
-        file_path (str): The path to the file containing the text.
         prompt_path (str): The path to the file containing the prompt.
         url (str): The URL to which the POST request will be sent.
         headers (dict): Headers for the POST request.
+        tag_file_tuples (list): List of (tag, file_name) tuples.
 
     Returns:
         str: The response text from the server.
     """
     try:
         # Read the prompt from the prompt file
-        with open(prompt_path, 'r') as prompt_file:
+        with open(prompt_path, 'r', errors='ignore') as prompt_file:
             prompt = prompt_file.read()
 
-        # Read the content of the text file
-        with open(file_path, 'r') as text_file:
-            text = text_file.read()
+        # Build the payload string
+        payload_str = prompt
+        for tag, file_name in tag_file_tuples:
+            try:
+                with open(file_name, 'r', errors='ignore') as text_file:
+                    text = text_file.read()
+            except FileNotFoundError:
+                logging.error(f"File not found: {file_name}")
+                raise
+            if tag == "SQUAREBRACKETS":
+                payload_str += f"\n[{text}]\n"
+            elif tag == "CURLYBRACKETS":
+                payload_str += f"\n{{{text}}}\n"
+            elif tag == "PARENTHESES":
+                payload_str += f"\n({text})\n"
+            elif tag == "ANGLEBRACKETS":
+                payload_str += f"\n<{text}>\n"
+            else:
+                payload_str += f"\n{tag}\n{text}\n{tag}\n"
 
-        # Combine the prompt and the text
-        payload = {"message": prompt + text, "mode": "chat"}
+        payload_str = json.dumps(payload_str)
+        payload = {"message": payload_str, "mode": "chat"}
         logging.info(f"Payload: {payload}")
 
         # Send the POST request, ignoring SSL certificate errors
@@ -122,29 +161,29 @@ def post_text_to_url(file_path, prompt_path, url, headers):
 def main():
     # Set up argument parsing
     parser = argparse.ArgumentParser(description="Send a POST request with text and prompt.")
-    parser.add_argument("-f", "--file", help="The path to the file containing the text.", required=False)
     parser.add_argument("-p", "--prompt", help="The path to the file containing the prompt.", required=False)
     parser.add_argument("-u", "--url", help="The URL to which the POST request will be sent.", required=False)
     parser.add_argument("-b", "--bearer", help="The Bearer token for authorization.", required=False)
     parser.add_argument("-c", "--config", help="The path to the configuration file.", required=False)
     parser.add_argument("-n", "--section", help="The section name in the configuration file.", required=False)
+    parser.add_argument("tag_file", nargs="*", help="Tuples in the format <tag>,<file_name>")
 
     # Parse the arguments
     args = parser.parse_args()
 
+    # Load configuration and tag_file_tuples
     try:
-        # Load configuration
-        config = load_configuration(args)
+        config, tag_file_tuples = load_configuration(args)
 
         # Validate configuration
-        validate_configuration(config)
+        validate_configuration(config, tag_file_tuples)
 
         # Prepare headers
         headers = prepare_headers(config["bearer_token"])
 
         # Send POST request
         response_text = post_text_to_url(
-            config["file_path"], config["prompt_path"], config["url"], headers
+            config["prompt_path"], config["url"], headers, tag_file_tuples
         )
         # Log and print the response
         logging.info(f"Response: {response_text}")
