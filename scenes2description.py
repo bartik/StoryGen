@@ -67,6 +67,14 @@ def process_files(config, args):
         config (dict): Configuration dictionary.
         args (Namespace): Parsed command-line arguments.
     """
+    # Parse the pattern argument as <tag>,<pattern>
+    if not config["pattern"] or ',' not in config["pattern"]:
+        logging.error("The pattern argument must be in the format <tag>,<pattern>")
+        raise ValueError("The pattern argument must be in the format <tag>,<pattern>")
+    tag, file_pattern = config["pattern"].split(',', 1)
+    tag = tag.strip()
+    file_pattern = file_pattern.strip()
+
     # Define the prompt file
     prompt_file = os.path.join(config["source"], f"{config['replace']}prompt.txt")
 
@@ -74,7 +82,7 @@ def process_files(config, args):
     os.makedirs(config["destination"], exist_ok=True)
 
     # Iterate over all files matching the pattern in the source directory
-    pattern = os.path.join(config["source"], config["pattern"])
+    pattern = os.path.join(config["source"], file_pattern)
     for file_path in glob.glob(pattern):
         file_name = os.path.splitext(os.path.basename(file_path))[0]
         logging.info(f"Processing file: {file_name}")
@@ -83,11 +91,10 @@ def process_files(config, args):
         output_file_name = file_name.replace(config["find"], config["replace"])
         output_file = os.path.join(config["destination"], f"{output_file_name}.txt")
 
-        # Construct the command to be invoked
+        # Construct the command to be invoked (without -f)
         command = [
             "python",
             "ewardea.py",
-            "-f", file_path,  # Add the -f switch for file_path
             "-p", prompt_file  # Add the -p switch for prompt_file
         ]
 
@@ -100,6 +107,9 @@ def process_files(config, args):
             command.extend(["-c", args.config])
         if args.section:
             command.extend(["-n", args.section])
+
+        # Add the positional argument: <tag>,<file_name>
+        command.append(f"{tag},{file_path}")
 
         logging.info(f"Command to execute: {command}")
         # Execute the command and redirect output to the output file
