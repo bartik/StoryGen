@@ -98,6 +98,40 @@ def prepare_headers(bearer_token):
         "Content-Type": "application/json",
     }
 
+def build_payload_str(prompt, tag_file_tuples):
+    """
+    Build the payload string by appending text from tag/file tuples to the prompt.
+
+    Parameters:
+        prompt (str): The prompt text.
+        tag_file_tuples (list): List of (tag, file_name) tuples.
+
+    Returns:
+        str: The constructed payload string.
+    """
+    payload_str = prompt
+    for tag, file_name in tag_file_tuples:
+        try:
+            with open(file_name, 'r', errors='ignore') as text_file:
+                text = text_file.read()
+        except FileNotFoundError:
+            logging.error(f"File not found (skipped): {file_name}")
+            continue  # Skip this file and continue with the next
+        except Exception as e:
+            logging.error(f"Error reading file '{file_name}' (skipped): {e}")
+            continue  # Skip this file and continue with the next
+        if tag == "SQUAREBRACKETS":
+            payload_str += f"\n[{text}]\n"
+        elif tag == "CURLYBRACKETS":
+            payload_str += f"\n{{{text}}}\n"
+        elif tag == "PARENTHESES":
+            payload_str += f"\n({text})\n"
+        elif tag == "ANGLEBRACKETS":
+            payload_str += f"\n<{text}>\n"
+        else:
+            payload_str += f"\n{tag}\n{text}\n{tag}\n"
+    return payload_str
+
 def post_text_to_url(prompt_path, url, headers, tag_file_tuples):
     """
     Reads a prompt from a file, appends text from tag/file tuples, and sends it as a POST request.
@@ -116,26 +150,8 @@ def post_text_to_url(prompt_path, url, headers, tag_file_tuples):
         with open(prompt_path, 'r', errors='ignore') as prompt_file:
             prompt = prompt_file.read()
 
-        # Build the payload string
-        payload_str = prompt
-        for tag, file_name in tag_file_tuples:
-            try:
-                with open(file_name, 'r', errors='ignore') as text_file:
-                    text = text_file.read()
-            except FileNotFoundError:
-                logging.error(f"File not found: {file_name}")
-                raise
-            if tag == "SQUAREBRACKETS":
-                payload_str += f"\n[{text}]\n"
-            elif tag == "CURLYBRACKETS":
-                payload_str += f"\n{{{text}}}\n"
-            elif tag == "PARENTHESES":
-                payload_str += f"\n({text})\n"
-            elif tag == "ANGLEBRACKETS":
-                payload_str += f"\n<{text}>\n"
-            else:
-                payload_str += f"\n{tag}\n{text}\n{tag}\n"
-
+        # Build the payload string using the new function
+        payload_str = build_payload_str(prompt, tag_file_tuples)
         payload_str = json.dumps(payload_str)
         payload = {"message": payload_str, "mode": "chat"}
         logging.info(f"Payload: {payload}")
@@ -158,19 +174,7 @@ def post_text_to_url(prompt_path, url, headers, tag_file_tuples):
         logging.error(f"Unexpected error: {e}")
         raise
 
-def main():
-    # Set up argument parsing
-    parser = argparse.ArgumentParser(description="Send a POST request with text and prompt.")
-    parser.add_argument("-p", "--prompt", help="The path to the file containing the prompt.", required=False)
-    parser.add_argument("-u", "--url", help="The URL to which the POST request will be sent.", required=False)
-    parser.add_argument("-b", "--bearer", help="The Bearer token for authorization.", required=False)
-    parser.add_argument("-c", "--config", help="The path to the configuration file.", required=False)
-    parser.add_argument("-n", "--section", help="The section name in the configuration file.", required=False)
-    parser.add_argument("tag_file", nargs="*", help="Tuples in the format <tag>,<file_name>")
-
-    # Parse the arguments
-    args = parser.parse_args()
-
+def run(args):
     # Load configuration and tag_file_tuples
     try:
         config, tag_file_tuples = load_configuration(args)
@@ -200,6 +204,20 @@ def main():
     except Exception as e:
         logging.error(f"Unexpected Error: {e}")
         sys.exit(1)
+
+def main():
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(description="Send a POST request with text and prompt.")
+    parser.add_argument("-p", "--prompt", help="The path to the file containing the prompt.", required=False)
+    parser.add_argument("-u", "--url", help="The URL to which the POST request will be sent.", required=False)
+    parser.add_argument("-b", "--bearer", help="The Bearer token for authorization.", required=False)
+    parser.add_argument("-c", "--config", help="The path to the configuration file.", required=False)
+    parser.add_argument("-n", "--section", help="The section name in the configuration file.", required=False)
+    parser.add_argument("tag_file", nargs="*", help="Tuples in the format <tag>,<file_name>")
+
+    # Parse the arguments
+    args = parser.parse_args()
+    run(args)
 
 if __name__ == "__main__":
     main()
