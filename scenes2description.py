@@ -20,6 +20,7 @@ def load_configuration(args):
         dict: A dictionary containing the final configuration values.
     """
     config = configparser.ConfigParser()
+    tag_file = ""
     if args.config:
         try:
             config.read(args.config)
@@ -32,6 +33,15 @@ def load_configuration(args):
     # Determine the section to read from
     section = args.section if args.section else "DEFAULT"
 
+    # Read tag_file_tuples only from keys named 'tag_file' that contain a comma
+    if section in config:
+        for key, value in config.items(section):
+            if key == "tag_file":
+                for line in value.splitlines():
+                    line = line.strip()
+                    if ',' in line:
+                        tag_file += f" {line}"
+
     # Load and override configuration
     return {
         "source": args.source or config.get(section, "source", fallback=None),
@@ -41,6 +51,7 @@ def load_configuration(args):
         "replace": args.replace or config.get(section, "replace", fallback=None),
         "url": args.url or config.get(section, "url", fallback=None),
         "bearer_token": args.bearer or config.get(section, "bearer", fallback=None),
+        "tag_file": tag_file,
     }
 
 def validate_configuration(config):
@@ -111,6 +122,10 @@ def process_files(config, args):
         # Add the positional argument: <tag>,<file_name>
         command.append(f"{tag},{file_path}")
 
+        # Add the positional argument: <tag>,<file_name>
+        if config["tag_file"]:
+            command.append(f"{config['tag_file']}")
+
         logging.info(f"Command to execute: {command}")
         # Execute the command and redirect output to the output file
         try:
@@ -120,22 +135,7 @@ def process_files(config, args):
         except subprocess.CalledProcessError as e:
             logging.error(f"Error processing {file_path}: {e.stderr.decode().strip()}")
 
-def main():
-    # Set up argument parsing
-    parser = argparse.ArgumentParser(description="Process scene files and generate descriptions.")
-    parser.add_argument("-s", "--source", help="The source directory containing the files.", required=False)
-    parser.add_argument("-d", "--destination", help="The destination directory for output files.", required=False)
-    parser.add_argument("-p", "--pattern", help="The pattern to match files in the source directory.", required=False)
-    parser.add_argument("-f", "--find", help="The string to find in the file name.", required=False)
-    parser.add_argument("-r", "--replace", help="The string to replace the find string with in the file name.", required=False)
-    parser.add_argument("-b", "--bearer", help="The Bearer token for authorization.", required=False)
-    parser.add_argument("-u", "--url", help="The URL to which the POST request will be sent.", required=False)
-    parser.add_argument("-c", "--config", help="The path to the configuration file.", required=False)
-    parser.add_argument("-n", "--section", help="The section name in the configuration file.", required=False)
-
-    # Parse the arguments
-    args = parser.parse_args()
-
+def run(args):
     try:
         # Load configuration
         config = load_configuration(args)
@@ -151,6 +151,24 @@ def main():
     except Exception as e:
         logging.error(f"Unexpected Error: {e}")
         sys.exit(1)
+
+def main():
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(description="Process scene files and generate descriptions.")
+    parser.add_argument("-s", "--source", help="The source directory containing the files.", required=False)
+    parser.add_argument("-d", "--destination", help="The destination directory for output files.", required=False)
+    parser.add_argument("-p", "--pattern", help="The pattern to match files in the source directory.", required=False)
+    parser.add_argument("-f", "--find", help="The string to find in the file name.", required=False)
+    parser.add_argument("-r", "--replace", help="The string to replace the find string with in the file name.", required=False)
+    parser.add_argument("-b", "--bearer", help="The Bearer token for authorization.", required=False)
+    parser.add_argument("-u", "--url", help="The URL to which the POST request will be sent.", required=False)
+    parser.add_argument("-c", "--config", help="The path to the configuration file.", required=False)
+    parser.add_argument("-n", "--section", help="The section name in the configuration file.", required=False)
+    parser.add_argument("tag_file", nargs="*", help="Tuples in the format <tag>,<file_name>")
+
+    # Parse the arguments
+    args = parser.parse_args()
+    run(args)
 
 if __name__ == "__main__":
     main()
